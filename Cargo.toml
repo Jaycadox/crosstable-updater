@@ -1,0 +1,18 @@
+[package]
+name = "crosstable-updater"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4.3", features = ["derive"] }
+enum_index = "0.2.0"
+indicatif = "0.17.6"
+rayon = "1.7.0"
+t1ha = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.ysc-utils]
+git = "https://github.com/Jaycadox/ysc-utils.git"
+branch = "old-script-format"
+
