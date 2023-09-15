@@ -802,6 +802,7 @@ dependencies = [
  "enum_index",
  "indicatif",
  "rayon",
+ "regex",
  "t1ha",
  "ysc-utils",
 ]
