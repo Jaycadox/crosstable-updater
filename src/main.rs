@@ -1,6 +1,3 @@
-use clap::Parser;
-use enum_index::EnumIndex;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -8,7 +5,11 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+
+use clap::Parser;
+use enum_index::EnumIndex;
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 use ysc_utils::disassemble::Instruction;
 use ysc_utils::ysc::YSCScript;
 
@@ -104,11 +105,22 @@ fn generate_pairs(old: Vec<YSCScript>, mut new: Vec<YSCScript>) -> Vec<ScriptPai
     }
 
     if !non_matching.is_empty() {
-        println!("Could not find {} old scripts: {}", non_matching.len(), non_matching.join(", "));
+        println!(
+            "Could not find {} old scripts: {}",
+            non_matching.len(),
+            non_matching.join(", ")
+        );
     }
 
     if !new.is_empty() {
-        println!("Could not find {} new scripts: {}", new.len(), new.iter().map(|x| x.name.clone()).collect::<Vec<_>>().join(", "));
+        println!(
+            "Could not find {} new scripts: {}",
+            new.len(),
+            new.iter()
+                .map(|x| x.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
     println!(
@@ -154,7 +166,7 @@ fn generate_thin_natives(instructions: &[Instruction]) -> Vec<ThinNative> {
                     num_args: *num_args,
                     num_return: *num_returns,
                 });
-            },
+            }
             _ => {}
         }
     }
@@ -162,7 +174,11 @@ fn generate_thin_natives(instructions: &[Instruction]) -> Vec<ThinNative> {
     native_calls
 }
 
-fn get_script_instructions(query: &'static str, ysc_script: &YSCScript, old_format: bool) -> Vec<Instruction> {
+fn get_script_instructions(
+    query: &'static str,
+    ysc_script: &YSCScript,
+    old_format: bool,
+) -> Vec<Instruction> {
     let vec;
     let mut disasm = ysc_utils::disassemble::Disassembler::new(ysc_script);
     disasm.old_format = old_format;
@@ -179,7 +195,11 @@ fn get_script_instructions(query: &'static str, ysc_script: &YSCScript, old_form
     vec
 }
 
-fn get_thin_natives(query: &'static str, ysc_script: &YSCScript, old_format: bool) -> Vec<ThinNative> {
+fn get_thin_natives(
+    query: &'static str,
+    ysc_script: &YSCScript,
+    old_format: bool,
+) -> Vec<ThinNative> {
     generate_thin_natives(&get_script_instructions(query, ysc_script, old_format))
 }
 
@@ -222,21 +242,30 @@ fn main() {
     let new_natives = Arc::new(Mutex::new(HashMap::<u64, ThinNative>::new()));
     let sty = ProgressStyle::with_template(
         "Disassembling scripts... [{elapsed_precise}] {bar:60} {pos:>7}/{len:7} {msg}",
-    ).unwrap().progress_chars("##-");
+    )
+    .unwrap()
+    .progress_chars("##-");
     let pb = Arc::new(Mutex::new(ProgressBar::new(total_len as u64)));
     pb.lock().unwrap().set_style(sty);
     script_pairs.par_iter().for_each(|pair| {
         let old_ntvs = get_thin_natives("old", &pair.old, args.old_old_format);
         let old_ntvs_len = old_ntvs.len();
-        for ntv in old_ntvs {
-            old_natives.lock().unwrap().insert(ntv.hash, ntv);
+        {
+            let mut old_natives = old_natives.lock().unwrap();
+            for ntv in old_ntvs {
+                old_natives.insert(ntv.hash, ntv);
+            }
         }
 
         let new_ntvs = get_thin_natives("new", &pair.new, args.new_old_format);
         let new_ntvs_len = new_ntvs.len();
-        for ntv in new_ntvs {
-            new_natives.lock().unwrap().insert(ntv.hash, ntv);
+        {
+            let mut new_natives = new_natives.lock().unwrap();
+            for ntv in new_ntvs {
+                new_natives.insert(ntv.hash, ntv);
+            }
         }
+
         {
             let pb = pb.lock().unwrap();
             pb.set_message(format!(
@@ -249,7 +278,9 @@ fn main() {
 
         total_disassembled.fetch_add(old_ntvs_len + new_ntvs_len, Ordering::AcqRel);
     });
-    pb.lock().unwrap().finish_with_message("Finished disassembling scripts");
+    pb.lock()
+        .unwrap()
+        .finish_with_message("Finished disassembling scripts");
     let old_natives = Mutex::into_inner(Arc::try_unwrap(old_natives).unwrap()).unwrap();
     let new_natives = Mutex::into_inner(Arc::try_unwrap(new_natives).unwrap()).unwrap();
     let total_natives = total_disassembled.load(Ordering::Relaxed);
@@ -293,6 +324,7 @@ fn main() {
     for (old, new) in crosstable {
         buf.push_str(&format!("0x{:X},0x{:X}\n", old, new));
     }
-    file.write_all(buf.as_bytes()).expect("Unable to write to output file");
+    file.write_all(buf.as_bytes())
+        .expect("Unable to write to output file");
     println!("Wrote crosstable to: '{}'", args.out);
 }
