@@ -28,11 +28,13 @@ jobs:
           toolchain: stable
     - name: Build
       run: cargo build --verbose --release
-    - uses: "marvinpinto/action-automatic-releases@latest"
+    - name: Zip build output
+      run: |
+        $zipFile = "crosstable-updater.zip"
+        Compress-Archive -Path ".\target\release\*.exe" -DestinationPath $zipFile
+      shell: powershell
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "latest"
-        prerelease: true
-        title: "Development Build"
-        files: |
-          ./target/release/*.exe
+        name: crosstable-updater
+        path: crosstable-updater.zip
