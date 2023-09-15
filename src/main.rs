@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -20,15 +20,15 @@ fn get_dir(query: &'static str) -> PathBuf {
     std::io::stdin()
         .read_line(&mut line)
         .expect("Unable to read line");
-    let pb = PathBuf::from(line.replace("\r", "").replace("\n", ""));
-    return if pb.exists() {
+    let pb = PathBuf::from(line.replace(['\r', '\n'], ""));
+    if pb.exists() {
         pb
     } else {
         panic!("specified directory does not exist")
-    };
+    }
 }
 
-fn get_ysc_paths(path: &PathBuf) -> Vec<PathBuf> {
+fn get_ysc_paths(path: &Path) -> Vec<PathBuf> {
     let mut vec = vec![];
     for file in path.read_dir().expect("invalid path") {
         let file = file.expect("invalid file");
@@ -147,12 +147,12 @@ fn generate_thin_natives(instructions: &[Instruction]) -> Vec<ThinNative> {
         if bytes.len() > 140 {
             bytes.drain(0..(bytes.len() - 140));
         }
-        bytes.extend_from_slice(&mut inst.enum_index().to_le_bytes());
+        bytes.extend_from_slice(&inst.enum_index().to_le_bytes());
         match inst {
             Instruction::PushConstU8 { one } => bytes.push(*one),
-            Instruction::PushConstU24 { num } => bytes.extend_from_slice(&mut num.to_le_bytes()),
-            Instruction::PushConstU32 { one } => bytes.extend_from_slice(&mut one.to_le_bytes()),
-            Instruction::PushConstF { one } => bytes.extend_from_slice(&mut one.to_le_bytes()),
+            Instruction::PushConstU24 { num } => bytes.extend_from_slice(&num.to_le_bytes()),
+            Instruction::PushConstU32 { one } => bytes.extend_from_slice(&one.to_le_bytes()),
+            Instruction::PushConstF { one } => bytes.extend_from_slice(&one.to_le_bytes()),
             Instruction::Native {
                 native_hash,
                 num_args,
