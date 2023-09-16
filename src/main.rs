@@ -61,7 +61,20 @@ fn get_scripts(query: &'static str, path: Option<String>) -> Vec<YSCScript> {
     } else {
         get_dir(query)
     };
+
+    let path_name_str = script.display().to_string();
+
+    if path_name_str.ends_with(".ysc") || path_name_str.ends_with(".ysc.full") {
+        println!("{query}: Please target a directory containing multiple .ysc(.full) files. The chosen directory is recursively searched.");
+        exit(1)
+    }
+
     let script_paths = get_ysc_paths(&script);
+
+    if script_paths.len() == 1 {
+        println!("{query}: Please target a directory containing multiple .ysc(.full) files. The chosen directory is recursively searched.");
+        exit(1)
+    }
 
     let pb = Arc::new(Mutex::new(ProgressBar::new(script_paths.len() as u64)));
     pb.lock()
