@@ -47,6 +47,14 @@ fn get_ysc_paths(path: &Path) -> Vec<PathBuf> {
     vec
 }
 
+fn get_progress_bar_template(query: String) -> ProgressStyle {
+    ProgressStyle::with_template(&format!(
+        "{query:25} [{{elapsed_precise}}] {{bar:60}} {{pos:>7}}/{{len:7}} {{msg}}"
+    ))
+    .expect("Invalid progress bar template")
+    .progress_chars("##-")
+}
+
 fn get_scripts(query: &'static str, path: Option<String>) -> Vec<YSCScript> {
     let script = if let Some(path) = path {
         path.into()
@@ -54,27 +62,31 @@ fn get_scripts(query: &'static str, path: Option<String>) -> Vec<YSCScript> {
         get_dir(query)
     };
     let script_paths = get_ysc_paths(&script);
-    print!("Loading {} {}... ", script_paths.len(), query);
+
+    let pb = Arc::new(Mutex::new(ProgressBar::new(script_paths.len() as u64)));
+    pb.lock()
+        .unwrap()
+        .set_style(get_progress_bar_template(format!("Loading {query}...")));
+
     let _ = std::io::stdout().flush();
 
-    let mut ysc_scripts = Vec::with_capacity(script_paths.len());
-    for scr in &script_paths {
-        match YSCScript::from_ysc_file(scr) {
+    let ysc_scripts = Arc::new(Mutex::new(Vec::with_capacity(script_paths.len())));
+    script_paths
+        .par_iter()
+        .for_each(|scr| match YSCScript::from_ysc_file(scr) {
             Ok(ysc_script) => {
-                ysc_scripts.push(ysc_script);
+                let pb = pb.lock().unwrap();
+                pb.set_message(ysc_script.name.clone());
+                ysc_scripts.lock().unwrap().push(ysc_script);
+                pb.inc(1);
             }
             Err(e) => {
                 println!("Failed to load script '{}': {e}", scr.display());
             }
-        }
-    }
-    println!(
-        "Loaded {}/{} {}.",
-        ysc_scripts.len(),
-        script_paths.len(),
-        query
-    );
-    ysc_scripts
+        });
+    pb.lock().unwrap().finish();
+
+    Mutex::into_inner(Arc::try_unwrap(ysc_scripts).unwrap()).unwrap()
 }
 
 struct ScriptPair {
@@ -83,12 +95,9 @@ struct ScriptPair {
 }
 
 fn generate_pairs(old: Vec<YSCScript>, mut new: Vec<YSCScript>) -> Vec<ScriptPair> {
-    print!("Generating script pairs... ");
     let _ = std::io::stdout().flush();
 
     let mut vec = vec![];
-    let new_len = new.len();
-    let old_len = old.len();
 
     let mut non_matching = vec![];
 
@@ -104,30 +113,6 @@ fn generate_pairs(old: Vec<YSCScript>, mut new: Vec<YSCScript>) -> Vec<ScriptPai
         }
     }
 
-    if !non_matching.is_empty() {
-        println!(
-            "Could not find {} old scripts: {}",
-            non_matching.len(),
-            non_matching.join(", ")
-        );
-    }
-
-    if !new.is_empty() {
-        println!(
-            "Could not find {} new scripts: {}",
-            new.len(),
-            new.iter()
-                .map(|x| x.name.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-
-    println!(
-        "Generated {}/{} pairs",
-        vec.len(),
-        usize::max(new_len, old_len)
-    );
     vec
 }
 
@@ -141,7 +126,7 @@ struct ThinNative {
 
 fn generate_thin_natives(instructions: &[Instruction]) -> Vec<ThinNative> {
     let mut bytes = Vec::with_capacity(200);
-    let mut native_calls = Vec::with_capacity(instructions.len());
+    let mut native_calls = Vec::with_capacity(instructions.len() / 1000);
 
     for inst in instructions {
         if bytes.len() > 140 {
@@ -240,13 +225,12 @@ fn main() {
 
     let old_natives = Arc::new(Mutex::new(HashMap::<u64, ThinNative>::new()));
     let new_natives = Arc::new(Mutex::new(HashMap::<u64, ThinNative>::new()));
-    let sty = ProgressStyle::with_template(
-        "Disassembling scripts... [{elapsed_precise}] {bar:60} {pos:>7}/{len:7} {msg}",
-    )
-    .unwrap()
-    .progress_chars("##-");
+
     let pb = Arc::new(Mutex::new(ProgressBar::new(total_len as u64)));
-    pb.lock().unwrap().set_style(sty);
+    pb.lock()
+        .unwrap()
+        .set_style(get_progress_bar_template("Disassembling scripts...".into()));
+
     script_pairs.par_iter().for_each(|pair| {
         let old_ntvs = get_thin_natives("old", &pair.old, args.old_old_format);
         let old_ntvs_len = old_ntvs.len();
@@ -278,9 +262,8 @@ fn main() {
 
         total_disassembled.fetch_add(old_ntvs_len + new_ntvs_len, Ordering::AcqRel);
     });
-    pb.lock()
-        .unwrap()
-        .finish_with_message("Finished disassembling scripts");
+
+    pb.lock().unwrap().set_message("Finding native pairs...");
     let old_natives = Mutex::into_inner(Arc::try_unwrap(old_natives).unwrap()).unwrap();
     let new_natives = Mutex::into_inner(Arc::try_unwrap(new_natives).unwrap()).unwrap();
     let total_natives = total_disassembled.load(Ordering::Relaxed);
@@ -292,18 +275,18 @@ fn main() {
             matched_old_natives.insert(*hash, f.clone());
         }
     }
-    println!(
-        "Found {} native calls. {} unique. {} matched ({} ideally).",
-        total_natives,
+    pb.lock().unwrap().finish_with_message(format!(
+        "{}/{} unique calls. {}/{} matched",
         old_natives.len() + new_natives.len(),
+        total_natives,
         matched_old_natives.len(),
         ideal
-    );
+    ));
 
     let mut crosstable = HashMap::<u64, u64>::new();
     let old_natives = matched_old_natives;
 
-    print!("Generating crosstable... ");
+    print!("Generating crosstable...  ");
     let _ = std::io::stdout().flush();
 
     for (_, old_native) in old_natives {
@@ -317,14 +300,16 @@ fn main() {
             crosstable.insert(old_native.native_hash, new_native.native_hash);
         }
     }
-    println!("Found {} mappings", crosstable.len());
+
     let mut file = File::create(&args.out).expect("Unable to create output file");
 
     let mut buf = String::new();
+    let crosstable_len = crosstable.len();
+
     for (old, new) in crosstable {
         buf.push_str(&format!("0x{:X},0x{:X}\n", old, new));
     }
     file.write_all(buf.as_bytes())
         .expect("Unable to write to output file");
-    println!("Wrote crosstable to: '{}'", args.out);
+    println!("Wrote {} mappings to: '{}'", crosstable_len, args.out);
 }
