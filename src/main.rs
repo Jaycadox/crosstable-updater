@@ -263,17 +263,16 @@ fn main() {
             }
         }
 
+        let total = total_disassembled.fetch_add(old_ntvs_len + new_ntvs_len, Ordering::AcqRel);
         {
             let pb = pb.lock().unwrap();
             pb.set_message(format!(
-                "{:>30}: {:>9} native calls",
+                "{:>30}: {:>9} native calls. {total:8} total.",
                 pair.old.name.to_lowercase(),
                 old_ntvs_len + new_ntvs_len
             ));
             pb.inc(1);
         }
-
-        total_disassembled.fetch_add(old_ntvs_len + new_ntvs_len, Ordering::AcqRel);
     });
 
     pb.lock().unwrap().set_message("Finding native pairs...");
